@@ -1,0 +1,59 @@
+name: Build snow data and deploy site
+
+on:
+  schedule:
+    # ~2.5h after each 00/06/12/18Z HRRR init (data + ingest latency)
+    - cron: '30 2,8,14,20 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      leads:
+        description: 'Lead hours subset for a quick test build, e.g. "0 6 12". Empty = all 0-48.'
+        default: ''
+        required: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Build snow + wind frames
+        run: |
+          LEADS='${{ github.event.inputs.leads }}'
+          PYTHONPATH=pipeline python pipeline/build_frames.py \
+            --out site/data --workers 4 ${LEADS:+--leads "$LEADS"}
+
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

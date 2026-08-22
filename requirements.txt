@@ -1,0 +1,8 @@
+dynamical-catalog>=0.7.0
+icechunk>=1.0
+zarr>=3.0.8
+xarray>=2025.1
+numpy>=1.26,<2.3
+scipy>=1.13
+pyproj>=3.6
+pillow>=10
