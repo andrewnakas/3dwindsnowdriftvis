@@ -6,10 +6,10 @@ Usage:
 Alongside the wind levels, each frame atlas carries two snow scalar tiles
 (see config.py): snowfall this hour, cumulative SWE since init, 2 m
 temperature, model snow depth, percent-frozen precipitation, and total
-precipitation rate. Hourly snowfall SWE is derived as precipitation rate x
-frozen fraction — HRRR's own ASNOW field measures snow DEPTH with a baked-in
-snow ratio and inconsistent unit conventions across archives, while
-precipitation rate and percent-frozen are unambiguous.
+precipitation. Hourly snowfall SWE comes straight from HRRR's
+snowfall_water_equivalent_surface (kg m-2 == mm of water accumulated since
+the previous hourly step); total_precipitation_surface ships in the same
+per-step units. Both are unit-checked at read time.
 """
 
 import argparse
@@ -38,21 +38,18 @@ SFC_VARS = [("wind_u_10m", "wind_v_10m"), ("wind_u_80m", "wind_v_80m")]
 ALLOW_TERRAIN_FALLBACK = os.environ.get("TERRAIN_FALLBACK_OK") == "1"
 
 
-def rate_to_mm_per_hour(da, name):
-    """Convert a precipitation-family rate DataArray to mm/h of water,
-    keyed off its units attribute. Fails loudly on units it can't place —
-    a silent factor-3600 error here corrupts every derived snow field."""
+def amount_to_mm(da, name):
+    """Convert a per-step precipitation amount to mm of water, keyed off its
+    units attribute. Fails loudly on units it can't place — a silent factor
+    error here corrupts every derived snow field. The dataset's steps are
+    hourly, so mm per step is numerically mm/h."""
     units = str(da.attrs.get("units", "")).strip().lower()
     vals = da.values
-    factors = {
-        "mm/s": 3600.0, "mm s**-1": 3600.0, "mm s-1": 3600.0,
-        "kg m**-2 s**-1": 3600.0, "kg m-2 s-1": 3600.0, "kg/m^2/s": 3600.0,
-        "m/s": 3.6e6, "m s**-1": 3.6e6, "m s-1": 3.6e6,
-        "mm/h": 1.0, "mm h**-1": 1.0, "mm hr-1": 1.0,
-    }
-    if units in factors:
-        return vals * factors[units]
-    raise ValueError(f"{name}: unrecognized rate units {units!r}")
+    if units in ("kg m-2", "kg m**-2", "kg/m^2", "mm"):
+        return vals
+    if units == "m":
+        return vals * 1000.0
+    raise ValueError(f"{name}: unrecognized amount units {units!r}")
 
 
 def to_celsius(da):
@@ -115,11 +112,18 @@ def _build_frame(sfc, prs, init, lead, index_map):
         raise ValueError(f"lead {lead}: NaN wind at domain center")
 
     # --- snow scalar planes -------------------------------------------------
-    precip = regrid(
-        rate_to_mm_per_hour(sfc_t["precipitation_surface"], "precipitation_surface"),
+    snow_amt = regrid(
+        amount_to_mm(sfc_t["snowfall_water_equivalent_surface"],
+                     "snowfall_water_equivalent_surface"),
         index_map,
     )
-    precip = np.clip(np.nan_to_num(precip, nan=np.nan), 0.0, None)
+    snow_amt = np.clip(np.nan_to_num(snow_amt), 0.0, None)
+    precip = regrid(
+        amount_to_mm(sfc_t["total_precipitation_surface"],
+                     "total_precipitation_surface"),
+        index_map,
+    )
+    precip = np.clip(np.nan_to_num(precip), 0.0, None)
     # CPOFP uses -50 as its "no precipitation" sentinel; clip it to 0.
     pfrozen = regrid(sfc_t["percent_frozen_precipitation_surface"].values, index_map)
     pfrozen = np.clip(np.nan_to_num(pfrozen), 0.0, 100.0) / 100.0
@@ -127,9 +131,9 @@ def _build_frame(sfc, prs, init, lead, index_map):
     depth = regrid(sfc_t["snow_thickness_surface"].values, index_map)
     depth = np.clip(np.nan_to_num(depth), 0.0, None)
 
-    # Lead 0 is the analysis: its "rate since previous step" has no step
-    # before it, so nothing has fallen yet in this forecast's story.
-    snow_hr = precip * pfrozen if lead > 0 else np.zeros_like(precip)
+    # Lead 0 is the analysis: its "since the previous step" accumulation has
+    # no step before it, so nothing has fallen yet in this forecast's story.
+    snow_hr = snow_amt if lead > 0 else np.zeros_like(snow_amt)
 
     snow = {
         "snow_hr": snow_hr.astype(np.float32),

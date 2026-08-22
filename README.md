@@ -66,8 +66,8 @@ site/       no build step: CDN MapLibre + ES modules + raw WebGL2
 Each frame atlas (2250×795) carries 12 wind level tiles (R=u, G=v, B=omega,
 A=valid), a 16-bit terrain tile, and two snow scalar tiles: snowfall this
 hour / cumulative SWE / 2 m temperature, and model depth / percent frozen /
-precipitation rate. Hourly snowfall SWE is derived as precipitation rate ×
-frozen fraction. A GitHub Action rebuilds `site/data/` four times a day and
+precipitation. Hourly snowfall SWE comes straight from HRRR's
+`snowfall_water_equivalent` field. A GitHub Action rebuilds `site/data/` four times a day and
 deploys the whole site to GitHub Pages; no data is committed.
 
 ## Development
