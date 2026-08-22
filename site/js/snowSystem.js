@@ -10,7 +10,8 @@ import {
   COVER_UPDATE_FRAG, COVER_MESH_VERT, COVER_MESH_FRAG,
 } from "./snowShaders.js";
 import {
-  depthRampData, DEPTH_MAX, SNOW_LADDER, DRIFT_LADDER, ladderSourceIndices,
+  depthRampData, windRampData, DEPTH_MAX,
+  SNOW_LADDER, DRIFT_LADDER, WIND_LADDER, ladderSourceIndices,
 } from "./atmosphere.js";
 import { FrameManager } from "./frames.js";
 
@@ -112,7 +113,9 @@ export class SnowSystem {
 
     this.flakesOn = true;
     this.streaksOn = true;
+    this.windOn = true;   // ambient speed-colored wind tracers, always alive
     this.coverOn = true;
+    this.basePath = opts.basePath ?? "data/";
     this.modelDepthMode = false; // show raw HRRR depth instead of drifted sim
     this.coverOpacity = 0.9;
     this.flakeOpacity = 0.9;
@@ -127,6 +130,7 @@ export class SnowSystem {
     const mobile = opts.mobile ?? false;
     this.flakeCount = mobile ? 65536 : 262144;
     this.streakCount = mobile ? 16384 : 65536;
+    this.windCount = mobile ? 16384 : 65536;
     this.coverW = mobile ? 675 : 1350;
     this.coverH = mobile ? 398 : 795;
     this.meshGrid = mobile ? 96 : 160;
@@ -185,15 +189,20 @@ export class SnowSystem {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
-    this.rampTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.rampTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, depthRampData());
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.bindTexture(gl.TEXTURE_2D, null);
+    const makeRamp = (data) => {
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      return tex;
+    };
+    this.rampTex = makeRamp(depthRampData());
+    this.windRampTex = makeRamp(windRampData());
 
-    this.frames = new FrameManager(gl, this.meta);
+    this.frames = new FrameManager(gl, this.meta, this.basePath);
     this.frames.loadTerrain(() => this.map.triggerRepaint());
     this.snowU = this.buildSnowUniforms();
     this.rebuildSystems();
@@ -204,8 +213,9 @@ export class SnowSystem {
   onRemove() {
     this.flakes?.destroy();
     this.streaks?.destroy();
+    this.wind?.destroy();
     this.destroyCover();
-    this.flakes = this.streaks = null;
+    this.flakes = this.streaks = this.wind = null;
   }
 
   // --- setup helpers --------------------------------------------------------
@@ -249,11 +259,14 @@ export class SnowSystem {
     const size = (n) => Math.max(16, 1 << Math.floor(Math.log2(Math.sqrt(n))));
     this.flakes = new ParticleSystem(this.gl, size(this.flakeCount), FLAKE_MAX_AGE);
     this.streaks = new ParticleSystem(this.gl, size(this.streakCount), STREAK_MAX_AGE);
+    this.wind?.destroy();
+    this.wind = new ParticleSystem(this.gl, size(this.windCount), STREAK_MAX_AGE);
     const levels = this.levelIndices
       .map((i) => this.meta.levels[i])
       .sort((a, b) => a.heightMeters - b.heightMeters);
     this.flakeStack = this.buildStackUniforms(levels, SNOW_LADDER);
     this.streakStack = this.buildStackUniforms(levels, DRIFT_LADDER);
+    this.windStack = this.buildStackUniforms(levels, WIND_LADDER);
   }
 
   setFlakeCount(n) { this.flakeCount = n; this.rebuildSystems(); }
@@ -525,8 +538,9 @@ export class SnowSystem {
 
     // ---- particle updates ----
     if (this.floatOK && this.snowU) {
-      if (this.flakesOn) this.updateParticles(gl, this.flakes, this.flakeProg, this.flakeU, this.flakeStack, pairVis, spawn, b, lonSpan, latSpan, false);
-      if (this.streaksOn && this.cover) this.updateParticles(gl, this.streaks, this.streakProg, this.streakU, this.streakStack, pairVis, spawn, b, lonSpan, latSpan, true);
+      if (this.flakesOn) this.updateParticles(gl, this.flakes, this.flakeProg, this.flakeU, this.flakeStack, pairVis, spawn, b, lonSpan, latSpan, "flake");
+      if (this.streaksOn && this.cover) this.updateParticles(gl, this.streaks, this.streakProg, this.streakU, this.streakStack, pairVis, spawn, b, lonSpan, latSpan, "streak");
+      if (this.windOn) this.updateParticles(gl, this.wind, this.streakProg, this.streakU, this.windStack, pairVis, spawn, b, lonSpan, latSpan, "wind");
     }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo);
@@ -539,6 +553,12 @@ export class SnowSystem {
 
     if (this.coverOn) this.drawCover(gl, matrix, pairVis, spawn, b, lonSpan, latSpan);
     if (this.floatOK && this.snowU) {
+      if (this.windOn) {
+        this.drawParticles(gl, matrix, this.wind, this.windStack, pairVis, b, lonSpan, latSpan, {
+          groundLock: 1, streak: 4.5, maxAge: STREAK_MAX_AGE,
+          color: [1, 1, 1], speedAlpha: 0, opacity: 0.8, useRamp: 1,
+        });
+      }
       if (this.streaksOn && this.cover) {
         this.drawParticles(gl, matrix, this.streaks, this.streakStack, pairVis, b, lonSpan, latSpan, {
           groundLock: 1, streak: 7.0, maxAge: STREAK_MAX_AGE,
@@ -597,7 +617,8 @@ export class SnowSystem {
     this.coverCur = 1 - this.coverCur;
   }
 
-  updateParticles(gl, sys, prog, U, stack, pair, spawn, b, lonSpan, latSpan, isStreak) {
+  updateParticles(gl, sys, prog, U, stack, pair, spawn, b, lonSpan, latSpan, mode) {
+    const isStreak = mode !== "flake";  // streak + wind share the streak program
     gl.useProgram(prog);
     gl.bindVertexArray(this.vao);
     this.setStackUniforms(gl, U, stack);
@@ -622,8 +643,9 @@ export class SnowSystem {
     if (isStreak) {
       gl.uniform1i(U.u_cover, 8);
       gl.uniform1f(U.u_saltThresh, this.saltThresh);
+      gl.uniform1f(U.u_ambient, mode === "wind" ? 1.0 : 0.0);
       gl.activeTexture(gl.TEXTURE8);
-      gl.bindTexture(gl.TEXTURE_2D, this.cover[this.coverCur]);
+      gl.bindTexture(gl.TEXTURE_2D, this.cover ? this.cover[this.coverCur] : this.blankTex);
       gl.activeTexture(gl.TEXTURE0);
     } else {
       gl.uniform1f(U.u_rateRef, 2.5);
@@ -729,6 +751,8 @@ export class SnowSystem {
     gl.uniform1f(D.u_saltThresh, this.saltThresh);
     gl.uniform3fv(D.u_color, opts.color);
     gl.uniform1f(D.u_opacity, opts.opacity);
+    gl.uniform1i(D.u_ramp, 4);
+    gl.uniform1f(D.u_useRamp, opts.useRamp ?? 0);
     gl.uniform1i(D.u_stateSize, sys.size);
     this.setTerrainUniforms(gl, D, 7);
 
@@ -747,6 +771,8 @@ export class SnowSystem {
     gl.bindTexture(gl.TEXTURE_2D, sys.prevState.pos);
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, sys.curState.aux);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, this.windRampTex);
     gl.activeTexture(gl.TEXTURE5);
     gl.bindTexture(gl.TEXTURE_2D, pair.texA);
     gl.activeTexture(gl.TEXTURE6);

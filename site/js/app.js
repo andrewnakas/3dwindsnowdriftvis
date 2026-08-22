@@ -18,14 +18,29 @@ function fail(msg) {
 }
 
 async function main() {
+  // ?storm=<id> loads a prebuilt historical event from data/storms/<id>/
+  // instead of the live forecast. The picker options come from the storm
+  // index the deploy assembles; missing index just means no storms shipped.
+  const params = new URLSearchParams(location.search);
+  const storm = (params.get("storm") ?? "").replace(/[^a-z0-9-]/gi, "");
+  const basePath = storm ? `data/storms/${storm}/` : "data/";
+
+  let storms = [];
+  try {
+    const r = await fetch(`data/storms/index.json?t=${Date.now()}`);
+    if (r.ok) storms = await r.json();
+  } catch { /* no historical storms shipped */ }
+
   let meta;
   try {
-    const r = await fetch(`data/meta.json?t=${Date.now()}`); // always-fresh meta
+    const r = await fetch(`${basePath}meta.json?t=${Date.now()}`); // always-fresh meta
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     meta = await r.json();
   } catch (e) {
-    fail("Snow data not available yet (data/meta.json missing). " +
-      "The GitHub Action may still be running its first build.");
+    fail(storm
+      ? `Storm "${storm}" is not available on this deployment.`
+      : "Snow data not available yet (data/meta.json missing). " +
+        "The GitHub Action may still be running its first build.");
     throw e;
   }
 
@@ -77,17 +92,18 @@ async function main() {
     const layer = new SnowSystem(map, meta, {
       exaggeration: 1,
       mobile: isMobile,
-      terrainPhysics: new URLSearchParams(location.search).get("tp") !== "0",
+      basePath,
+      terrainPhysics: params.get("tp") !== "0",
       onReady: () => {
-        initUI(map, layer, meta, setBasemap);
+        initUI(map, layer, meta, setBasemap, { storms, storm });
         // Labels go on AFTER the snow layers so places stay readable.
         map.addLayer(LABEL_LAYER);
       },
     });
-    const q = new URLSearchParams(location.search);
-    if (q.get("drift") === "0") layer.qGain = 0;
-    if (q.get("flakes") === "0") layer.flakesOn = false;
-    if (q.get("cover") === "0") layer.coverOn = false;
+    if (params.get("drift") === "0") layer.qGain = 0;
+    if (params.get("flakes") === "0") layer.flakesOn = false;
+    if (params.get("cover") === "0") layer.coverOn = false;
+    if (params.get("wind") === "0") layer.windOn = false;
     window.__snow = layer; // debugging hook
     if (sessionStorage.getItem("lowmem")) {
       layer.flakeCount = 16384;

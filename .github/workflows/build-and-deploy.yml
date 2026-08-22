@@ -42,6 +42,19 @@ jobs:
           PYTHONPATH=pipeline python pipeline/build_frames.py \
             --out site/data --workers 4 ${LEADS:+--leads "$LEADS"}
 
+      # Prebuilt historical storms live on the storm-data branch (built by
+      # the build-storm workflow); ship them alongside the live forecast.
+      - name: Include historical storms
+        run: |
+          if git fetch --depth 1 origin storm-data; then
+            git worktree add /tmp/storm-data FETCH_HEAD
+            mkdir -p site/data/storms
+            cp -r /tmp/storm-data/storms/. site/data/storms/
+            echo "storms included:" && ls site/data/storms
+          else
+            echo "no storm-data branch yet; deploying live forecast only"
+          fi
+
       - uses: actions/configure-pages@v4
 
       - uses: actions/upload-pages-artifact@v3

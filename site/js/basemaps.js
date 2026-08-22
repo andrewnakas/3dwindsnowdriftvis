@@ -46,6 +46,18 @@ export const BASE_LAYERS = [
   { id: "bg", type: "background", paint: { "background-color": "#0b0e14" } },
   { id: "opentopo", type: "raster", source: "opentopo" },
   { id: "imagery", type: "raster", source: "imagery", layout: { visibility: "none" } },
+  // Same imagery tiles, frosted: desaturated and lifted toward white so the
+  // satellite ground reads as mid-winter at every zoom level.
+  {
+    id: "imagery-winter", type: "raster", source: "imagery",
+    layout: { visibility: "none" },
+    paint: {
+      "raster-saturation": -0.75,
+      "raster-brightness-min": 0.35,
+      "raster-brightness-max": 1.0,
+      "raster-contrast": -0.05,
+    },
+  },
   { id: "pistes", type: "raster", source: "pistes" },
 ];
 
@@ -57,8 +69,9 @@ export const LABEL_LAYER = {
 
 // name -> which base layers are visible
 const MODES = {
-  winter: { opentopo: true, imagery: false },
-  satellite: { opentopo: false, imagery: true },
+  winter: { opentopo: true, imagery: false, "imagery-winter": false },
+  wintersat: { opentopo: false, imagery: false, "imagery-winter": true },
+  satellite: { opentopo: false, imagery: true, "imagery-winter": false },
 };
 
 export function setBasemap(map, mode, pistesOn = true) {

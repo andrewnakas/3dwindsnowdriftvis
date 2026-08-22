@@ -17,6 +17,15 @@
     <h1>3D Snow Drift Viewer</h1>
     <div class="sub">NOAA HRRR · CONUS · <span id="init-time">loading…</span></div>
 
+    <label for="storm-select">Event</label>
+    <select id="storm-select">
+      <option value="" selected>Live 48 h forecast</option>
+    </select>
+
+    <label class="row">
+      <input type="checkbox" id="show-wind" checked> Wind particles
+    </label>
+
     <label class="row">
       <input type="checkbox" id="show-flakes" checked> Falling snow
     </label>
@@ -36,7 +45,8 @@
     <label for="basemap-select">Basemap</label>
     <select id="basemap-select">
       <option value="winter" selected>Winter topo</option>
-      <option value="satellite">Satellite</option>
+      <option value="wintersat">Winter satellite</option>
+      <option value="satellite">Satellite (summer)</option>
     </select>
     <label class="row">
       <input type="checkbox" id="show-pistes" checked> Ski runs (OpenSnowMap)

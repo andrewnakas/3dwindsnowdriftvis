@@ -185,6 +185,7 @@ uniform float u_time;
 uniform vec2 u_spawnMin;
 uniform vec2 u_spawnMax;
 uniform float u_saltThresh;  // 10 m wind speed (m/s) to start saltation
+uniform float u_ambient;     // 1 = plain wind tracer: no cover/threshold gating
 
 ${COMMON}
 ${TERRAIN_PHYSICS}
@@ -200,7 +201,7 @@ void main() {
   float terr = terrainHeight(npos);
   float heightM;
   vec4 wind = sampleWind(npos, nsigma, terr, heightM);
-  wind.xy *= u_windGain * 1.2;  // saltating grains skim faster than the mean flow
+  wind.xy *= u_windGain * mix(1.2, 1.0, u_ambient);  // saltating grains skim fast
   float lat = u_north - npos.y * u_latSpan;
   wind.xyz = applyTerrainPhysics(npos, wind.xyz, terr, heightM - terr, lat);
 
@@ -214,14 +215,16 @@ void main() {
   float spd10 = length(windAtAgl(npos, 10.0, terr).xy) * u_windGain;
 
   bool oob = npos.x < 0.0 || npos.x > 1.0 || npos.y < 0.0 || npos.y > 1.0 || wind.a < 0.5;
+  bool starved = u_ambient < 0.5 && (coverDepth < 0.003 || spd10 < u_saltThresh * 0.8);
   float lifetime = u_maxAge * (0.3 + 0.7 * rand(v_uv * 7.13));
-  if (oob || age > lifetime || coverDepth < 0.003 || spd10 < u_saltThresh * 0.8) {
+  if (oob || age > lifetime || starved) {
     vec2 seed = v_uv + fract(u_time * 1.37);
     vec2 spawnPos = u_spawnMin + vec2(rand(seed), rand(seed.yx * 1.71)) * (u_spawnMax - u_spawnMin);
     float sTerr = terrainHeight(spawnPos);
     float sSpd = length(windAtAgl(spawnPos, 10.0, sTerr).xy) * u_windGain;
     float sCover = texture(u_cover, spawnPos).r;
-    float p = clamp((sSpd - u_saltThresh) / 5.0, 0.0, 1.0) * step(0.003, sCover);
+    float p = u_ambient > 0.5 ? 0.95
+      : clamp((sSpd - u_saltThresh) / 5.0, 0.0, 1.0) * step(0.003, sCover);
     if (rand(seed * 2.61) < p) {
       npos = spawnPos;
       nsigma = rand(seed * 5.3) * 0.4;
@@ -272,6 +275,7 @@ uniform float u_fadeNear;
 uniform float u_fadeFar;
 
 out float v_alpha;
+out float v_speed;
 
 const float PI = 3.141592653589793;
 
@@ -295,6 +299,7 @@ void main() {
   float terr = terrainHeight(pc);
   float heightM;
   vec4 wind = sampleWind(pc, sigma, terr, heightM);
+  v_speed = clamp(length(wind.xy) * u_windGain / 60.0, 0.0, 1.0);
 
   float lon = u_west + pos.x * u_lonSpan;
   float lat = u_north - pos.y * u_latSpan;
@@ -351,13 +356,17 @@ precision highp float;
 precision highp int;
 
 in float v_alpha;
+in float v_speed;
 out vec4 outColor;
 
 uniform vec3 u_color;
 uniform float u_opacity;
+uniform sampler2D u_ramp;
+uniform float u_useRamp;   // 1 = wind tracers: color by speed instead of white
 
 void main() {
-  outColor = vec4(u_color, 1.0) * (v_alpha * u_opacity);
+  vec3 rgb = mix(u_color, texture(u_ramp, vec2(v_speed, 0.5)).rgb, u_useRamp);
+  outColor = vec4(rgb, 1.0) * (v_alpha * u_opacity);
 }`;
 
 // ---------------------------------------------------------------------------

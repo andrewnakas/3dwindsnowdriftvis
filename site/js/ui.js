@@ -2,12 +2,30 @@
 
 import { drawDepthLegend } from "./atmosphere.js";
 
-export function initUI(map, layer, meta, setBasemap) {
+export function initUI(map, layer, meta, setBasemap, stormOpts = {}) {
   const $ = (id) => document.getElementById(id);
 
   // --- header ---
   const init = new Date(meta.init_time);
   $("init-time").textContent = `init ${init.toISOString().slice(0, 13)}Z`;
+
+  // --- historical storm picker ---
+  const stormSel = $("storm-select");
+  for (const s of stormOpts.storms ?? []) {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.label ?? s.id;
+    stormSel.appendChild(opt);
+  }
+  stormSel.value = stormOpts.storm ?? "";
+  stormSel.addEventListener("change", () => {
+    // Switching datasets swaps every texture and the sim state: a clean
+    // reload is simpler and safer than hot-swapping the FrameManager.
+    const url = new URL(location.href);
+    if (stormSel.value) url.searchParams.set("storm", stormSel.value);
+    else url.searchParams.delete("storm");
+    location.href = url.toString();
+  });
 
   // --- layer toggles ---
   const bindToggle = (id, set) => {
@@ -15,6 +33,7 @@ export function initUI(map, layer, meta, setBasemap) {
     el.addEventListener("change", () => set(el.checked));
     return el;
   };
+  bindToggle("show-wind", (v) => { layer.windOn = v; }).checked = layer.windOn;
   bindToggle("show-flakes", (v) => { layer.flakesOn = v; }).checked = layer.flakesOn;
   bindToggle("show-streaks", (v) => { layer.streaksOn = v; }).checked = layer.streaksOn;
   bindToggle("show-cover", (v) => { layer.coverOn = v; }).checked = layer.coverOn;

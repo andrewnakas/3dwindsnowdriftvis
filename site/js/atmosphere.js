@@ -44,6 +44,38 @@ export function depthRampData(n = 256) {
   return data;
 }
 
+// --- wind speed ramp (for the ambient wind tracers; same as the parent
+// wind viewer so both sites read alike): calm blue -> cyan -> green ->
+// yellow -> orange -> red -> magenta, normalized over 0..60 m/s.
+const WIND_STOPS = [
+  [0.0, [63, 90, 190]],
+  [0.17, [64, 175, 205]],
+  [0.33, [95, 200, 120]],
+  [0.5, [228, 210, 95]],
+  [0.67, [240, 145, 65]],
+  [0.83, [230, 75, 60]],
+  [1.0, [220, 70, 180]],
+];
+
+export function windRampData(n = 256) {
+  const data = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    let c = WIND_STOPS[WIND_STOPS.length - 1][1];
+    for (let k = 1; k < WIND_STOPS.length; k++) {
+      if (t <= WIND_STOPS[k][0]) {
+        const [t0, c0] = WIND_STOPS[k - 1];
+        const [t1, c1] = WIND_STOPS[k];
+        const f = (t - t0) / (t1 - t0);
+        c = c0.map((v, j) => Math.round(v + (c1[j] - v) * f));
+        break;
+      }
+    }
+    data.set([...c, 255], i * 4);
+  }
+  return data;
+}
+
 // --- ladders ----------------------------------------------------------------
 // Heights above ground (metres) the snowflakes actually fall through. Tight
 // near the surface where the drift physics lives, reaching up to cloud base
@@ -52,6 +84,10 @@ export const SNOW_LADDER = [0.1, 50, 150, 300, 600, 1000, 1600, 2400, 3000];
 
 // Saltation layer for blowing-snow streaks: the bottom few metres only.
 export const DRIFT_LADDER = [0.1, 0.6, 1.5, 3.0];
+
+// Ambient wind tracers ride the surface layer, like the parent viewer's
+// default ground-hugged stack.
+export const WIND_LADDER = [0.1, 10, 25, 45, 60];
 
 // Model levels the ladders interpolate from: everything the pipeline ships.
 // (12 levels, surface to 700 hPa — exactly MAX_STACK.)

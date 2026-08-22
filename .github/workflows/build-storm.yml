@@ -1,0 +1,70 @@
+name: Build a historical storm
+
+# Builds one historical HRRR event and commits it to the storm-data branch;
+# the next site deploy ships it under data/storms/<id>/ and it appears in
+# the Event picker. Run from the Actions tab.
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: 'Storm id (url-safe, e.g. uri-2021)'
+        required: true
+      label:
+        description: 'Picker label (e.g. "Feb 2021 — Winter Storm Uri")'
+        required: true
+      init:
+        description: 'HRRR init time, ISO UTC (e.g. 2021-02-14T12:00). 00/06/12/18Z cycles, 2018-07-13 onward.'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-storm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Build storm frames
+        run: |
+          PYTHONPATH=pipeline python pipeline/build_frames.py \
+            --out /tmp/storm-out --workers 4 --init '${{ github.event.inputs.init }}'
+
+      - name: Commit to storm-data branch
+        run: |
+          set -e
+          ID='${{ github.event.inputs.id }}'
+          LABEL='${{ github.event.inputs.label }}'
+          case "$ID" in (*[!a-z0-9-]*) echo "id must be lowercase [a-z0-9-]"; exit 1;; esac
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin storm-data; then
+            git checkout storm-data
+          else
+            git checkout --orphan storm-data
+            git rm -rf --quiet . || true
+          fi
+          rm -rf "storms/$ID"
+          mkdir -p "storms/$ID"
+          cp -r /tmp/storm-out/. "storms/$ID/"
+          python - "$ID" "$LABEL" <<'EOF'
+          import json, sys, pathlib
+          p = pathlib.Path("storms/index.json")
+          idx = json.loads(p.read_text()) if p.exists() else []
+          idx = [s for s in idx if s.get("id") != sys.argv[1]]
+          idx.append({"id": sys.argv[1], "label": sys.argv[2]})
+          idx.sort(key=lambda s: s["label"])
+          p.write_text(json.dumps(idx, indent=1))
+          EOF
+          git add storms
+          git commit -m "Add storm $ID ($LABEL)"
+          git push origin storm-data
