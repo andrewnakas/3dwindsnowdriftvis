@@ -71,6 +71,10 @@ def build_frame(sfc, prs, init, lead, index_map, attempts=3):
     for attempt in range(attempts):
         try:
             return _build_frame(sfc, prs, init, lead, index_map)
+        except KeyError:
+            # A missing variable is permanent — retrying burns minutes per
+            # lead on an error that a code or dataset-schema change caused.
+            raise
         except Exception as e:  # noqa: BLE001 - network reads; retry then fail
             last_err = e
             log.warning("lead %d attempt %d failed: %s", lead, attempt + 1, e)
