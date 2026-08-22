@@ -37,6 +37,14 @@ and loading lee slopes, gullies and sheltered bowls with drifts.
   the sim resolution.
 - **Model depth mode** — HRRR's own snow-depth field, no drift, for A/B
   comparison.
+- **Wind particles** — always-on ambient tracers colored by wind speed (the
+  parent viewer's ramp), so the map is alive between storms.
+- **Historical storms** — the Event picker replays prebuilt events from the
+  HRRR archive (2018-07-13 onward): Winter Storm Uri (Feb 2021), the Denver
+  blizzard (Mar 2021), the Buffalo blizzard/Elliott (Dec 2022). Add more
+  from the Actions tab: run "Build a historical storm" with an id, a picker
+  label, and any archived 00/06/12/18Z init time — it builds the event onto
+  the `storm-data` branch and the next deploy ships it.
 
 Scrubbing backward (or the loop wrapping around) clears the pack and fast-
 forwards from hour 0 — a deliberate storm time-lapse, since drift is

@@ -161,6 +161,18 @@ export class SnowSystem {
       throw new Error("WebGL2 required");
     }
     this.gl = gl;
+    // A software rasterizer (SwiftShader/llvmpipe) runs every shader on the
+    // CPU; the drift pass's shelter raymarch over a snowy continent then
+    // freezes the tab. Shrink the whole system so it stays interactive.
+    const renderer = String(gl.getParameter(gl.RENDERER) ?? "");
+    if (/swiftshader|llvmpipe|softpipe|software/i.test(renderer)) {
+      this.coverW = Math.floor(this.coverW / 4);
+      this.coverH = Math.floor(this.coverH / 4);
+      this.flakeCount = 16384;
+      this.streakCount = 4096;
+      this.windCount = 8192;
+      this.meshGrid = 96;
+    }
     this.floatOK = !!gl.getExtension("EXT_color_buffer_float");
     gl.getExtension("OES_texture_float_linear"); // nicer cover filtering if present
     this.linearFloat = !!gl.getExtension("OES_texture_float_linear");
